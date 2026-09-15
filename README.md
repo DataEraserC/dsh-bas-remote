@@ -13,14 +13,16 @@ tools (`rw_connect`) can use.
 
 - **Landscape sign-in** — browser hand-off (`/ext-login.html`) with
   loopback token listener.
-- **Dev-space listing** — read-only view of running/starting/stopped spaces.
+- **Dev-space listing** — one card per space with running/starting/stopped
+  state and whether its SSH key is being served (probed, not guessed).
 - **Dev-space lifecycle** — start (resume) and stop (suspend) a dev space, the
   same way the VS Code Dev Space Manager does, and `bas_connect` starts a
   stopped space before opening the tunnel.
 - **Dev-channel tunnel** — WebSocket-to-SSH bridge via
   `@microsoft/dev-tunnels-ssh` (same libraries as the VS Code extension).
-- **`~/.ssh/config` management** — automatic `Host` entry per connected
-  space (optional, toggleable).
+- **SSH endpoint publishing** — off by default (nothing on your disk is
+  touched; the ready-to-paste `Host` block is reported instead). Opt in to a
+  fragment file this plugin owns, or to editing `~/.ssh/config` itself.
 - **Model tools** — `bas_status`, `bas_login`, `bas_logout`, `bas_devspaces`,
   `bas_start`, `bas_stop`, `bas_connect`, `bas_disconnect`, `bas_forget`.
 - **Human command** —
@@ -53,8 +55,9 @@ WebSocket because that is the only egress the landscape exposes:
    the same libraries the VS Code extension uses,
 3. `PortForwardingService` forwards a loopback TCP port
    (`127.0.0.1:<local>`) to the dev space's sshd on `127.0.0.1:2222`,
-4. the fetched key and a marked `~/.ssh/config` `Host` block are published for
-   whichever client connects next.
+4. the fetched key lands in the SSH directory and the `Host` block for the
+   next client is published according to `sshConfigMode` (by default only
+   reported, so a managed `~/.ssh/config` is never rewritten).
 
 From there it is plain SSH, which is the whole point: it serves remote
 development against the dev space — a Remote-SSH style editor session, a remote
@@ -77,6 +80,30 @@ into; the VS Code extension starts such a space first and so does this plugin.
 any tunnel into the space first (the dev channel dies with the runtime).
 `bas_connect` runs the start path implicitly, which is why connecting a stopped
 dev space now works instead of failing on "no startup URL".
+
+## SSH endpoint publishing
+
+Nothing outside the plugin's own key directory is written unless you ask for it:
+
+| `sshConfigMode` | Effect |
+|-----------------|--------|
+| `off` *(default)* | no file is touched; `bas_connect` reports the key path, the loopback endpoint and the exact `Host` block to paste |
+| `fragment` | maintains `<sshDir>/dsh-bas-remote.conf` (marked blocks, cleaned up on disconnect); add `Include ~/.ssh/dsh-bas-remote.conf` to your own config |
+| `config` | edits `sshConfigPath` (default `~/.ssh/config`) between this plugin's markers — the legacy `manageSshConfig: true` alias |
+
+In every mode the write is refused when the target is a symlink (nix store,
+home-manager), not a regular file, or not writable; `bas_connect` then reports
+the reason and the block instead of failing. That makes the plugin safe on a
+home-manager/nix-managed `~/.ssh/config`, which is normally immutable.
+
+## SSH availability
+
+A RUNNING dev space that has **no** remote-access or SSH entry in its
+`optionalExtensions` annotation can still serve its key, so SSH availability is
+*probed*: the plugin requests `GET <runtime startup url>/key` (60 s cache) and
+reports `ssh: key available`, `ssh: no key from the runtime`, or
+`ssh: not probed (start it first)`. The key endpoint is the only reliable
+signal — the annotation is not.
 
 BAS runs at most **two** dev spaces per landscape at a time — the toolkit
 enforces the same limit (`isItPossibleToStart` in `devspace-manager`) — so a

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1
+
+### Fixes
+- **SSH was reported as unavailable on dev spaces that do serve SSH.** Availability was inferred from a `vscode…ssh` entry in the `optionalExtensions` annotation, which a BAS dev space does not need to expose its key: the plugin showed "SSH not enabled" and refused to connect on a dev space whose `GET <runtime startup url>/key` answered 200 with an OpenSSH key. Availability is now *probed* against that endpoint (60 s cache) and `sshEnabled` is tri-state — `true`, `false`, or `null` while the space is not running and nothing can be probed. `bas_connect` no longer refuses on the annotation and only reports the runtime when the key request itself fails.
+- `bas_connect` in `fragment` mode wrote the fragment to `~/.ssh/dsh-bas-remote.conf` even when `sshDir`/`sshConfigPath` pointed elsewhere; it now resolves next to the key directory.
+
+### Changed
+- **Nothing is written to `~/.ssh/config` unless explicitly configured.** A nix/home-manager managed SSH config is normally immutable (this plugin's own environment showed the file as read-only) and any write would be reverted on the next switch. The new `sshConfigMode` is `off` by default: `bas_connect` then reports the key path, the loopback endpoint and the exact `Host` block to paste. `fragment` maintains `<sshDir>/dsh-bas-remote.conf` (marked blocks, removed on disconnect) for an `Include`; `config` keeps the previous behaviour and stays reachable through `sshConfigMode: 'config'` or the legacy `manageSshConfig: true`. Every mode refuses to write a target that is a symlink, not a regular file, or not writable, and reports why instead of failing.
+
+### Features
+- Web UI: every dev space in the list is now a card (status dot, name, state and SSH badge on one row; controls on the next; hints on their own line) so the "add the Remote Access extension" hint no longer pushes the Stop and Refresh buttons apart.
+- Web UI: the SSH badge reflects the probed state, Connect appears for a running space whose key is available, and a connected space names its SSH alias, including when the entry was not published to any config.
+
 ## 0.3.0
 
 ### Features
