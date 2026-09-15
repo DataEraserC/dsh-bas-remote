@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- **SFTP in BAS dev spaces.** A dev space's sshd is dropbear and the image ships no `sftp-server` (`/usr/lib/sftp-server` is missing; no root, `/usr/lib` is read-only), so SFTP failed with exit code 127 and `rw_stat`, `rw_read_file`, `rw_write_file`, `rw_sync`, `rw_push` and dsh-remote's mirror/pick reported `not a directory (or unreachable)`. The plugin now installs its own SSH server **inside** the dev space (`lib/bridge-server.cjs`, exec **and** SFTP), listening on `127.0.0.1:2223` only, authorised with exactly the dev-space key the landscape handed out, and forwarded over the same dev channel. `bas_connect` reports that endpoint for `rw_connect`, so one port serves everything; the dropbear endpoint stays for plain `ssh`/`scp -O`/`tar`.
+  - Setup is idempotent and cached in the dev space (`~/.dsh-bas-remote/sftp-bridge/`): the server is re-uploaded only when its hash changes and `ssh2` is installed once with the dev space's own npm (a few seconds, ~1 MB).
+  - The forward is verified end to end (handshake + `stat("/")`) before it is advertised; if the bridge cannot start, the connect still succeeds and the result says `SFTP bridge … unavailable: <reason>`, leaving the endpoint exec-only.
+  - New config: `sftpBridge` (default `true`), `sftpBridgePort` (2223), `sftpBridgeDir`, `sftpBridgeInstall`, `sftpBridgeTimeoutMs`.
+  - New tool `bas_bridge` (`status` | `stop`) reporting installed/running/pid/listening and the daemon log tail. `bas_disconnect` stops the daemon before closing the tunnel; a daemon left behind by a dropped tunnel is replaced on the next connect.
+- `test/bridge-server.test.mjs` (`npm test`): starts the real bridge server and asserts, with a real ssh2 client, that it refuses any other key and serves the full exec + SFTP surface (stat/readdir/read/write/fastPut/fastGet/mkdir/rename/unlink/rmdir/symlink/realpath, seconds-based timestamps, `NO_SUCH_FILE` for missing paths).
+
+### Fixed
+- **`bas_disconnect`/`bas_start` could not find a connected dev space by its id.** Tunnel keys are `<landscape>/<dev space id>` and the lookup sliced the key at the first `/`, which lands inside `https://`, so matching by id (or id prefix) never worked for a URL landscape; only the label or the full key did. Matching now uses the stored id/label.
+- **The dev channel was given up on after one failed handshake.** `Failed to read the protocol version` (and similar) happens intermittently; `bas_connect` now retries the handshake up to `connectAttempts` times (default 3, 1.5 s/3 s backoff) before reporting the failure.
+- The bridge daemon died on an unhandled ssh2 `client-timeout` (a client that vanishes — a killed harness, a dropped tunnel — makes the server's keepalive fail and emit `error`); those errors are now logged, and the daemon also survives an uncaught exception instead of disappearing mid-session.
+- Replacing a stale bridge daemon now also kills the process owning the bridge port, so an older daemon that does not match the command-line pattern cannot keep the port occupied. The server writes its own pid file (`setsid` makes `$!` the wrapper, not node).
+
+### Changed
+- The shell chip (`BAS · N`) no longer dispatches a `dsh-navigate` event that nothing listens to: it opens its own panel listing the connected dev spaces with their `ssh` and `sftp` endpoints. The settings page lists both endpoints per tunnel as well.
+
 ## 0.3.2
 
 ### Fixes

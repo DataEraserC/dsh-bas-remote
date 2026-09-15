@@ -1,6 +1,6 @@
 {
   "name": "dsh-bas-remote",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "SAP Business Application Studio (BAS) remote dev spaces for DeepSeek Harness: landscape login, dev-space lifecycle, and SSH dev-channel tunnels",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,11 +37,20 @@
     "ws": "^8.0.0"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/dsh-commands": { "optional": true },
-    "@deepseek-ai/dsh-system-prompt": { "optional": true }
+    "@deepseek-ai/dsh-commands": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-system-prompt": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@microsoft/dev-tunnels-ssh": "3.12.42",
-    "@microsoft/dev-tunnels-ssh-tcp": "3.12.42"
+    "@microsoft/dev-tunnels-ssh-tcp": "3.12.42",
+    "ssh2": "^1.17.0"
+  },
+  "scripts": {
+    "test": "node test/bridge-server.test.mjs && node test/client.test.mjs",
+    "test:live": "node test/live-devspace.mjs"
   }
 }
