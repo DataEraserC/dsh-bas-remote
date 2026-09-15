@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+### Features
+- Dev-space lifecycle control, mirroring the SAP VS Code extension's Dev Space Manager: `PUT <landscape>/ws-manager/api/v1/workspace/<id>` with `{"Suspended": false|true, "WorkspaceDisplayName": "<name>"}` starts (resumes) and stops (suspends) a dev space. New model tools `bas_start` and `bas_stop`, new `/bas start|stop` subcommands, and a non-blocking `/bas-remote/devspace` route.
+- `bas_connect` starts a `STOPPED` dev space first and waits for `RUNNING` before fetching the key and opening the tunnel, instead of failing on an empty startup URL. Start/stop waits poll the runtime status (ceiling: `devSpaceTimeoutMs`, default 240 s).
+- The BAS limit of two running or starting dev spaces per landscape is enforced with the names of the spaces holding the slots, as `isItPossibleToStart` does upstream.
+- Web UI: per-dev-space **Start** / **Stop** buttons, neutral grey for `STOPPED`, amber for `STARTING`/`STOPPING`, red for `ERROR`/`SAFE_MODE`, a live "Starting…"/"Stopping…" state that follows the status until it settles, and a "Connecting…" state for the connect action.
+
+### Fixes
+- `getDevSpaceKey` no longer reports a missing startup URL as "enable the Remote Access extension" when the real cause is a dev space that is not running; the error now names the runtime status.
+
 ## 0.2.2
 
 ### Fixes
