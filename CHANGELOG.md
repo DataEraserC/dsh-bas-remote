@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+### Features
+- Web UI: shell overlay status pill showing active tunnel count (click to open settings)
+
 ## 0.1.0
 
 Initial release.
