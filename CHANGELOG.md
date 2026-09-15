@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.2
+
+### Fixes
+- Web UI: the tunnel indicator rendered as a full-width translucent band across the top instead of a chip. `shell.overlay` renders each seat as a plain child of `.overlayLayer`, which spans the whole frame, so a block-level pill stretched to that width. It is now anchored as a compact chip (`position: absolute`, bottom-right, `width: max-content`) with a shadow and backdrop blur, and reads `BAS · N`.
+
+### Changed
+- `bas_connect` no longer tells you to `rw_pick_workspace` as if every remote tool worked. BAS dev spaces run dropbear without an `sftp-server` (`/usr/lib/sftp-server` is missing from the image), so the SFTP-based tools — `rw_stat`, `rw_read_file`, `rw_write_file`, `rw_sync`, `rw_push` and dsh-remote's mirror/pick (`not a directory (or unreachable)`) — cannot work there. The result now says so and prints the working alternatives (`scp -O`, `tar | ssh`) with the current port and key. Exec channels (`rw_exec`, `ssh <cmd>`) are unaffected.
+- Tool descriptions for `bas_status`, `bas_connect` and `bas_disconnect` no longer claim a `~/.ssh/config` entry is always written.
+
+### Documentation
+- README: what a BAS dev space can and cannot serve, with the live evidence per capability (exec yes, SFTP no, legacy `scp -O` yes, `tar` yes, no `rsync`).
+
 ## 0.3.1
 
 ### Fixes

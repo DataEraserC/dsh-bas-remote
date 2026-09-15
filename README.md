@@ -28,7 +28,8 @@ tools (`rw_connect`) can use.
 - **Human command** —
   `/bas status|login|devspaces|start|stop|connect|disconnect|logout|forget`.
 - **Web panel** — settings section in the harness Web UI with one-click
-  start / stop / connect / disconnect and live polling.
+  start / stop / connect / disconnect and live polling, plus a compact
+  floating chip (bottom right) showing the number of live tunnels.
 
 ## Bundle use
 
@@ -61,9 +62,29 @@ WebSocket because that is the only egress the landscape exposes:
 
 From there it is plain SSH, which is the whole point: it serves remote
 development against the dev space — a Remote-SSH style editor session, a remote
-shell, file editing and syncing, builds and tests, `scp`/`rsync`, and the
-harness remote-workspace tools (`rw_connect`) that adopt the dev space as a
-remote workspace. That is the same capability the upstream extension provides.
+shell, builds and tests, `scp`/`tar`, and the harness remote-workspace tools
+(`rw_connect`) that adopt the dev space as a remote workspace. That is the same
+capability the upstream extension provides.
+
+### What a BAS dev space can and cannot serve
+
+The dev space's sshd is **dropbear** and the image ships no `sftp-server`
+(`/usr/lib/sftp-server` does not exist; the image has no root and `/usr/lib` is
+read-only), so:
+
+| Capability | Works? | Evidence over a live tunnel |
+|------------|--------|-----------------------------|
+| exec channels (`ssh <cmd>`, `rw_exec`) | yes | `whoami` → `user`, `HOME=/home/user` |
+| forwarding to another dev-space port | yes | dropbear answers on the forwarded port |
+| SFTP subsystem | **no** | `sftp` → `bash: /usr/lib/sftp-server: No such file or directory`, ssh2 → `Received exit code 127 while establishing SFTP session` |
+| legacy `scp -O` | yes | push verified by `md5sum` inside the dev space |
+| `tar` over an exec channel | yes | `tar` is installed; no `rsync` |
+
+SFTP is what `rw_stat`, `rw_read_file`, `rw_write_file`, `rw_sync`, `rw_push`
+and dsh-remote's mirror/pick use, which is why those report
+`not a directory (or unreachable)`. Commands (`rw_exec`) and file transfer via
+`scp -O` or `tar | ssh` are unaffected. `bas_connect` prints exactly those
+commands with the right port and key.
 
 ## Dev-space lifecycle
 
