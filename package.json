@@ -1,6 +1,6 @@
 {
   "name": "dsh-bas-remote",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "SAP Business Application Studio (BAS) remote dev spaces for DeepSeek Harness: landscape login, dev-space listing, and SSH dev-channel tunnels",
   "license": "Apache-2.0",
   "type": "module",

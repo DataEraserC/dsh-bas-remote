@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+### Fixes
+- Sign-in no longer fails with `credential key segment "…" must match /^[a-z][a-z0-9-]*$/`: the credential store only admits lowercase hyphenated key segments, which a BAS landscape host never is (dotted, often digit-leading), so every browser hand-off failed at the store step. The record id is now a slug of the landscape host plus a short digest of the exact host.
+
 ## 0.2.0
 
 ### Features
