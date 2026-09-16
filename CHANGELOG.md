@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.6
+
+### Fixed
+- Port configurations now auto-save on every change, so unsaved configs no longer disappear when poll() refreshes state.
+
+### Added
+- Strict mode toggle: always visible in port settings, click to switch between strict (error on occupied port) and lenient (fallback to random).
+- Dev space ID is now displayed alongside the label in dev space list.
+
 ## 0.4.5
 
 ### Fixed
