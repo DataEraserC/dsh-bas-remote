@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0+2
+
+### Fixed
+- **Port settings: a row can actually be deleted now.** The UI posted the assignment map with the key removed, but `/bas-remote/ports` merges, so an absent key could never beat the stored value and the row returned on the next poll. A deletion now travels as an explicit `null`, and it is remembered (`removedForwardPorts`) — otherwise an assignment that comes from the `forwardPorts` config layer could not be deleted at all. `/bas ports clear` records the same tombstone.
+- **Port settings: the fields match the rest of the page.** The dev-space id and port inputs were raw `<input>` elements with browser-default chrome sitting next to the Landscapes field. Every field now uses the shared `Input` component, so border, background, radius and font size cannot drift again.
+- **The starting/connecting spinner turns again.** The `@keyframes dsh-bas-spin` stylesheet was removed the instant it was installed: `ctx.effect` runs its callback immediately and treats the *return value* as the disposer, and the teardown was passed in as the setup. The install now happens inside the effect and follows the first-party idiom (`typeof document` guard, `data-plugin-css` dedupe, removal only on unload).
+- **A configured fixed port is honored for the dropbear endpoint.** `Number.isFinite(localPort)` accepted the caller's default `0` as a real request, so `bas_connect` always took a random port and `forwardPorts[<id>].dropbear` was silently ignored — only the bridge port was applied. An explicit `localPort` still wins.
+- `bas_status`, `/bas ports` and the settings page now report one effective view (`effectiveForwardPorts` / `effectiveStrict`) instead of deriving config-plus-state separately, so the listing and the strict toggle cannot disagree with what is bound.
+
+### Added
+- `test/ports.test.mjs` drives the real route handlers (add, delete, re-add, the config layer, the strict toggle, legacy state files).
+- The client test stub is now a minimal but real DOM and models cordis's `ctx.effect` faithfully — the mismatch between the old no-op stub and the real effect semantics is exactly what hid the spinner bug.
+
+### Changed
+- `npm test` was red since 0.4.5 (the client test crashed on `document.createElement`); it is green again and now covers the three reported UI defects.
+- `test/live-devspace.mjs` resolves its config from `Config` instead of copying defaults by hand; the hand-kept list had already lost `forwardPorts` and `forwardPortsStrict`, so it never exercised strict mode.
+
 ## 0.4.6
 
 ### Fixed

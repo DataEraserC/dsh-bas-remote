@@ -49,15 +49,50 @@ function createReactStub(hookValues) {
 }
 
 /**
+ * A minimal DOM: enough for the stylesheet a plugin installs into `head`.
+ * @returns {object} the document stub, with `styles` exposing what is attached.
+ */
+function createDocumentStub() {
+  const styles = []
+  const head = {
+    appendChild(node) { styles.push(node); node.parentNode = head; return node },
+    removeChild(node) {
+      const at = styles.indexOf(node)
+      if (at !== -1) styles.splice(at, 1)
+      node.parentNode = null
+      return node
+    },
+  }
+  return {
+    head,
+    styles,
+    createElement(tag) { return { tagName: tag, dataset: {}, textContent: '', parentNode: null } },
+    // Mirrors the one selector first-party plugins use to dedupe their CSS.
+    querySelector(selector) {
+      const wanted = /^style\[data-plugin-css="(.*)"\]$/.exec(selector)
+      if (!wanted) return null
+      return styles.find((node) => node.dataset?.pluginCss === wanted[1]) ?? null
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  }
+}
+
+/**
  * Load lib/client.js with stubs and return what it registered.
+ *
+ * `ctx.effect` mirrors cordis: the callback runs IMMEDIATELY and its return
+ * value is the disposer. Modelling that faithfully is what catches a plugin
+ * that hands the teardown in as the setup.
  * @param {object} options - loader options.
  * @param {*} options.state - value the first `useState` returns (the polled snapshot).
  * @param {*} [options.open] - value the second `useState` returns (panel open flag).
- * @returns {{registrations: object[], react: object}} registrations and the react stub.
+ * @returns {{registrations: object[], react: object, document: object, effects: object[], dispose: Function}} stubs and results.
  */
 function loadClient({ state, open = false } = {}) {
   const react = createReactStub([state, open])
   const registrations = []
+  const effects = []
   const slots = {
     inject(_name, factory) {
       factory()
@@ -72,13 +107,24 @@ function loadClient({ state, open = false } = {}) {
     register: () => () => {},
     bind: () => (key) => undefined,
   }
+  const document = createDocumentStub()
+  const requests = []
   const ctx = {
     get: (name) => (name === 'slots' ? slots : locale),
-    effect: () => {},
+    effect(execute, label = 'anonymous') {
+      if (typeof execute !== 'function') throw new TypeError('Invalid effect')
+      const disposer = execute()
+      effects.push({ label, disposer })
+      return () => disposer?.()
+    },
   }
   const sandbox = {
     window: { __ModuleLoader__: { load: (mod) => sandbox.__mod = mod } },
-    document: { addEventListener() {}, removeEventListener() {} },
+    document,
+    fetch: async (url, init) => {
+      requests.push({ url, init })
+      return { ok: true, status: 200, json: async () => ({ ok: true }) }
+    },
     setInterval: () => 0,
     clearInterval: () => {},
     console,
@@ -91,7 +137,16 @@ function loadClient({ state, open = false } = {}) {
     throw new Error(`unexpected require("${id}")`)
   })
   exported.apply(ctx)
-  return { registrations, react }
+  return {
+    registrations,
+    react,
+    document,
+    effects,
+    requests,
+    // What a plugin unload does: run every collected teardown.
+    dispose: () => { for (const { disposer } of effects) disposer?.() },
+    applyAgain: () => exported.apply(ctx),
+  }
 }
 
 /** Evaluate function components so the tree holds host elements only. */
@@ -195,6 +250,104 @@ const keys = [...new Set([...SOURCE.matchAll(/tr\('([^']+)'/g)].map((match) => m
 check(`all ${keys.length} translated keys exist in both languages`, () => {
   const missing = keys.filter((key) => !zh.includes(`'${key}'`) || !en.includes(`'${key}'`))
   assert.deepEqual(missing, [])
+})
+
+// ── spinner keyframes ────────────────────────────────────────────────────────
+//
+// The ring is a pure CSS animation, so it only turns while the @keyframes rule
+// is in the document. `ctx.effect` runs its callback immediately and treats the
+// return value as the disposer — handing over the teardown removes the rule the
+// instant it is installed, which is invisible unless the effect semantics are
+// modelled faithfully.
+
+const spin = loadClient({ state: { tunnels: [] } })
+
+check('the spinner keyframes are still attached after apply', () => {
+  assert.equal(spin.document.styles.length, 1, 'the keyframes stylesheet is not in the document')
+  assert.match(spin.document.styles[0].textContent, /@keyframes dsh-bas-spin\b/)
+  assert.match(spin.document.styles[0].textContent, /rotate\(360deg\)/)
+})
+
+check('the animated element uses the injected keyframes name', () => {
+  const referenced = /animation:\s*'(dsh-bas-spin)[^']*'/.exec(SOURCE)
+  assert.ok(referenced, 'no element references the dsh-bas-spin animation')
+  assert.match(spin.document.styles[0].textContent, new RegExp(`@keyframes ${referenced[1]}\\b`))
+})
+
+check('the stylesheet is tagged so it can be found and deduped', () => {
+  const style = spin.document.styles[0]
+  assert.equal(style.dataset.plugin, 'dsh-bas-remote')
+  assert.ok(style.dataset.pluginCss, 'no data-plugin-css id')
+})
+
+check('applying the plugin twice does not stack a second stylesheet', () => {
+  spin.applyAgain()
+  assert.equal(spin.document.styles.length, 1)
+})
+
+check('unloading the plugin removes the stylesheet it installed', () => {
+  spin.dispose()
+  assert.equal(spin.document.styles.length, 0)
+})
+
+// ── port settings ────────────────────────────────────────────────────────────
+
+const portsState = {
+  tunnels: [],
+  landscapes: [],
+  forwardPorts: { 'ws-1': { dropbear: 44000, bridge: 44001 } },
+}
+const page = loadClient({ state: portsState, open: true })
+const pageTree = resolve(
+  page.registrations.find((entry) => entry.meta.name === 'settings.section').component(),
+)
+const inputs = findAll(pageTree, (node) => node.type === 'input')
+
+check('every field on the settings page shares one input style', () => {
+  assert.ok(inputs.length >= 4, `expected the landscape field plus port fields, found ${inputs.length}`)
+  const chrome = (style) => JSON.stringify({
+    border: style.border, background: style.background, color: style.color,
+    fontSize: style.fontSize, borderRadius: style.borderRadius, padding: style.padding, outline: style.outline,
+  })
+  const signatures = [...new Set(inputs.map((node) => chrome(node.props.style)))]
+  assert.equal(signatures.length, 1, `the fields disagree on style:\n  ${signatures.join('\n  ')}`)
+})
+
+check('the shared input style is a real field, not an unstyled default', () => {
+  const style = inputs[0].props.style
+  assert.match(style.border, /^1px solid \S/)
+  assert.ok(style.background, 'the field has no background')
+  assert.equal(style.fontSize, 13)
+})
+
+const deleteButton = findAll(
+  pageTree,
+  (node) => node.type === 'button' && String(node.props.children ?? '') === '×',
+)[0]
+
+check('a port row offers a remove control', () => {
+  assert.ok(deleteButton, 'no remove button in the port settings')
+})
+
+async function checkAsync(name, body) {
+  try {
+    await body()
+    checks.push(`ok   ${name}`)
+  } catch (error) {
+    checks.push(`FAIL ${name}: ${error.message}`)
+    process.exitCode = 1
+  }
+}
+
+await checkAsync('removing a port row posts an explicit null, so the route deletes it', async () => {
+  assert.ok(deleteButton, 'no remove button to click')
+  deleteButton.props.onClick()
+  await new Promise((resolve_) => setTimeout(resolve_, 0))
+  const sent = page.requests.filter((request) => request.url === '/bas-remote/ports').pop()
+  assert.ok(sent, 'the remove control posted nothing')
+  const payload = JSON.parse(sent.init.body).forwardPorts
+  assert.equal(payload['ws-1'], null, 'a deleted row must travel as null; an absent key cannot beat the stored value')
+  assert.deepEqual(Object.keys(payload), ['ws-1'], 'the payload should carry the tombstone and nothing else')
 })
 
 console.log(checks.join('\n'))

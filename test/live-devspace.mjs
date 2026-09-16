@@ -50,15 +50,15 @@ const ctx = {
   logger: { info: () => {}, warn: () => {}, debug: () => {}, error: () => {} },
 }
 const mod = await import('../lib/index.js')
-// Schemastery has no `.resolve`, so spell the defaults out (as cordis would).
-const config = {
-  loginHost: '127.0.0.1', loginPort: 55532, loginTimeoutMs: 180000, devSpaceTimeoutMs: 240000,
-  sshConfigPath: '', sshDir: join(HOME_DIR, 'ssh'), sshUser: 'user', sshConfigMode: 'off',
-  sshConfigFragmentPath: '', manageSshConfig: false, removeKeyOnDisconnect: false, localPort: 0,
-  sftpBridge: true, sftpBridgePort: 2223, sftpBridgeDir: '.dsh-bas-remote/sftp-bridge',
-  sftpBridgeInstall: true, sftpBridgeTimeoutMs: 300000, promptSection: true, connectAttempts: 3,
-  defaultLandscape: LANDSCAPE, debug: true,
-}
+// Resolve the defaults from the schema itself instead of copying them here:
+// a hand-kept list silently drifts every time `Config` gains a key (it had
+// already lost `forwardPorts` and `forwardPortsStrict`, so this test always ran
+// in lenient mode and never exercised the strict path).
+const config = mod.Config({
+  sshDir: join(HOME_DIR, 'ssh'),
+  defaultLandscape: LANDSCAPE,
+  debug: true,
+})
 mod.apply(ctx, config)
 
 const find = (name) => tools.find((tool) => tool.name === name)
