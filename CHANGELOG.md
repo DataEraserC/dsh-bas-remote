@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+- Settings page now shows both the ssh and sftp endpoints (`ssh 127.0.0.1:PORT · sftp 127.0.0.1:PORT`) and the `rw_connect` command for the sftp port, so users know which port to use for remote workspace tools. Previously only the dropbear endpoint was shown.
+
 ## 0.4.0
 
 ### Added
