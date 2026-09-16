@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.3
+
+### Added
+- **Per-dev-space fixed port assignments**: Configure fixed local ports for dropbear and bridge endpoints per dev space. Example in `~/.dsh/settings.yaml`:
+  ```yaml
+  dsh-bas-remote:
+    forwardPorts:
+      ws-4gdt1: { dropbear: 44000, bridge: 44001 }
+    forwardPortsStrict: true
+  ```
+- **Port checking**: Before connecting, the plugin checks if the configured port is available. In strict mode (default), an occupied port causes an error. In lenient mode, it falls back to a random port.
+- **Web UI port settings**: Edit port assignments in Settings → BAS Remote Dev Spaces → Port Settings. Supports adding, editing, and removing entries.
+- **TUI `/bas ports` command**: View and manage port assignments:
+  - `/bas ports` — show all assignments
+  - `/bas ports set <wsId> <dropbear> <bridge>` — set fixed ports
+  - `/bas ports clear <wsId>` — remove assignment
+
+### Fixed
+- Settings page crashed with `state is not defined` when rendering the sftp rw_connect hint.
+
 ## 0.4.2
 
 ### Fixed
