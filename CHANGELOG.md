@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4
+
+### Fixed
+- Plugin failed to import with `z.record is not a function` error. Changed `z.record` to `z.dict` which is the correct schemastery method.
+
 ## 0.4.3
 
 ### Added
