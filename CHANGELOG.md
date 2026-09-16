@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.5
+
+### Fixed
+- Settings page crashed with `Cannot read properties of null (reading 'forwardPorts')` when `state` was still `null` before the first poll completed. Added null guards.
+- Spinner icon in "starting" and "connecting" states was not animating. The `@keyframes dsh-bas-spin` CSS rule was referenced but never defined.
+
 ## 0.4.4
 
 ### Fixed
