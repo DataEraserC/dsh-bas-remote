@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0+3
+
+### Changed
+- **Port assignments are no longer a plugin config key.** `forwardPorts` (added in 0.4.3) was removed from the schema: a fixed local port is a fact about *this machine* at *this moment* — it depends on what is free locally — so a declarative profile entry was the wrong home for it, and having two writable sources meant a deletion needed a tombstone to beat the config layer. Assignments now live only in `~/.dsh/bas-remote/state.json`, set from Settings → BAS → Port settings or `/bas ports set <devSpace> <dropbear> <bridge>`.
+  - If a profile still sets `forwardPorts`, `apply()` now fails with an explicit error instead of silently letting the pinned ports fall back to random. Remove the key to continue.
+  - The `removedForwardPorts` tombstone list is gone with it; a state file written by 0.5.0+2 still loads, and the obsolete field is dropped on the next write.
+  - `forwardPortsStrict` stays a config key — it is a global policy default, not per-machine data, and it still supplies strict mode until the settings page toggle overrides it in state.
+
+### Added
+- The port route validates what it is given (an object per dev space, each port an integer `0`–`65535`, where `0` means "random"). It previously accepted anything: nothing checked writes, because the schema only ever validated the config layer. The whole payload is validated before any of it is applied, so a bad entry cannot leave half a batch in memory but unwritten on disk.
+
+### Fixed
+- `0` is still a storable value meaning "let the kernel choose", so pinning one endpoint while leaving the other random keeps working.
+
 ## 0.5.0+2
 
 ### Fixed

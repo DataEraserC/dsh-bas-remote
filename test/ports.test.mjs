@@ -1,9 +1,12 @@
 // Tests for the host half's port-assignment routes (lib/index.js).
 //
-// The settings UI edits port assignments through `/bas-remote/ports` and reads
-// them back through `/bas-remote/state`. The two must agree, and a deletion has
-// to survive the merge with the config layer — otherwise the row reappears on
-// the next poll no matter how many times it is removed.
+// Port assignments are machine-local runtime data: they live in
+// `~/.dsh/bas-remote/state.json` and are edited from the settings page or
+// `/bas ports`. There is no longer a config layer for them (0.5.0+3 removed the
+// `forwardPorts` schema key), so a deletion is a plain key removal — but it
+// only works because the client sends an explicit `null`: the route merges a
+// payload into state, so a key that is merely absent deletes nothing and the
+// row would reappear on the next poll.
 //
 // This drives the real plugin entry point with a stubbed cordis context that
 // captures the registered routes, then calls the handlers directly. No server,
@@ -73,7 +76,7 @@ async function loadPlugin(configOverrides = {}) {
 
   mod.apply(ctx, mod.Config(configOverrides))
 
-  /** Call one route the way node:http would. */
+  /** Resolve a port the way a connect would, through the captured tools. */
   const call = async (path, method, body) => {
     const handler = routes.get(path)
     if (!handler) throw new Error(`route ${path} is not registered; registered: ${[...routes.keys()].join(', ')}`)
@@ -101,21 +104,24 @@ async function loadPlugin(configOverrides = {}) {
 const WS = 'ws-4gdt1'
 const OTHER = 'ws-other'
 
-// A legacy state file (no `removedForwardPorts`) must still load.
+// A state file written by 0.5.0+2 also carries `removedForwardPorts`; it must be
+// ignored on read and cleaned out of the file on the next write.
 seedState({
   landscapes: [],
   lastDevSpace: WS,
   forwardPorts: { [WS]: { dropbear: 44000, bridge: 44001 } },
+  removedForwardPorts: ['ws-stale'],
 })
 
 const plugin = await loadPlugin()
 
-await check('a legacy state file without the tombstone list still loads', async () => {
+await check('a 0.5.0+2 state file still loads, tombstone list and all', async () => {
   const state = await plugin.snapshot()
   assert.deepEqual(state.forwardPorts[WS], { dropbear: 44000, bridge: 44001 })
+  assert.equal(state.removedForwardPorts, undefined, 'the dropped tombstone list must not leak into the snapshot')
 })
 
-await check('an added assignment is persisted and reported', async () => {
+await check('an added assignment is validated, persisted and reported', async () => {
   const response = await plugin.call('/bas-remote/ports', 'POST', {
     forwardPorts: { [OTHER]: { dropbear: 45000, bridge: 45001 } },
   })
@@ -124,57 +130,102 @@ await check('an added assignment is persisted and reported', async () => {
   assert.deepEqual((await plugin.snapshot()).forwardPorts[OTHER], { dropbear: 45000, bridge: 45001 })
 })
 
-await check('a null tombstone deletes the assignment instead of merging it back', async () => {
+const REJECTED = [
+  ['a string port', { dropbear: '44000', bridge: 45001 }],
+  ['a negative port', { dropbear: -1, bridge: 45001 }],
+  ['an out-of-range port', { dropbear: 70000, bridge: 45001 }],
+  ['a missing kind', { dropbear: 45000 }],
+  ['an array', [45000, 45001]],
+]
+
+for (const [label, value] of REJECTED) {
+  await check(`a payload with ${label} is refused`, async () => {
+    const response = await plugin.call('/bas-remote/ports', 'POST', { forwardPorts: { [OTHER]: value } })
+    assert.equal(response.status, 400, 'the route accepted an unusable port assignment')
+    assert.match(response.body.error, /port|object/i)
+    assert.deepEqual((await plugin.snapshot()).forwardPorts[OTHER], { dropbear: 45000, bridge: 45001 }, 'the rejected write still changed state')
+  })
+}
+
+await check('0 is accepted and means a random port, as the settings page sends', async () => {
+  const response = await plugin.call('/bas-remote/ports', 'POST', {
+    forwardPorts: { [OTHER]: { dropbear: 44000, bridge: 0 } },
+  })
+  assert.equal(response.status, 200, 'a blank field must stay storable')
+  assert.deepEqual((await plugin.snapshot()).forwardPorts[OTHER], { dropbear: 44000, bridge: 0 })
+  // `resolveForwardPort` reads 0 as "ask the kernel", so pinning one end and
+  // leaving the other random has to survive the round trip.
+  await plugin.call('/bas-remote/ports', 'POST', { forwardPorts: { [OTHER]: { dropbear: 45000, bridge: 45001 } } })
+})
+
+await check('a bad entry does not half-apply a multi-entry batch', async () => {
+  const response = await plugin.call('/bas-remote/ports', 'POST', {
+    forwardPorts: { 'ws-good': { dropbear: 46000, bridge: 46001 }, 'ws-bad': { dropbear: -1, bridge: 47001 } },
+  })
+  assert.equal(response.status, 400)
+  assert.equal((await plugin.snapshot()).forwardPorts['ws-good'], undefined, 'the valid half of a rejected batch leaked into state')
+})
+
+await check('a null removes the assignment instead of merging it back', async () => {
   const response = await plugin.call('/bas-remote/ports', 'POST', { forwardPorts: { [OTHER]: null } })
   assert.equal(response.status, 200)
   assert.equal(response.body.forwardPorts[OTHER], undefined, 'the route still reports the deleted assignment')
-  const state = await plugin.snapshot()
-  assert.equal(state.forwardPorts[OTHER], undefined, 'the deleted assignment is still displayed')
+  assert.equal((await plugin.snapshot()).forwardPorts[OTHER], undefined, 'the deleted assignment is still displayed')
   assert.equal(persistedState().forwardPorts[OTHER], undefined, 'the deletion was not persisted')
-  assert.ok(
-    persistedState().removedForwardPorts.includes(OTHER),
-    'the deletion was not remembered, so a config-layer value would come back',
-  )
 })
 
-await check('re-adding an assignment clears its tombstone', async () => {
+await check('a deletion survives a plugin reload', async () => {
+  // The whole point of the reported bug: the row must not come back.
+  const reloaded = await loadPlugin()
+  assert.equal((await reloaded.snapshot()).forwardPorts[OTHER], undefined, 'the assignment returned after a reload')
+})
+
+await check('re-adding an assignment works after a deletion', async () => {
   await plugin.call('/bas-remote/ports', 'POST', { forwardPorts: { [OTHER]: { dropbear: 46000, bridge: 46001 } } })
-  assert.ok(!persistedState().removedForwardPorts.includes(OTHER), 'the tombstone survived a new assignment')
   assert.deepEqual((await plugin.snapshot()).forwardPorts[OTHER], { dropbear: 46000, bridge: 46001 })
 })
 
-// The version that made the UI look broken: the value came from config, and a
-// plain key deletion could never beat it.
-const configPlugin = await (async () => {
+await check('a state write drops the obsolete tombstone field', async () => {
+  assert.equal(persistedState().removedForwardPorts, undefined, 'the tombstone list is still being written')
+})
+
+await check('strict mode comes from the config default and is overridden by state', async () => {
   seedState({ landscapes: [], lastDevSpace: '', forwardPorts: {} })
-  return loadPlugin({ forwardPorts: { [WS]: { dropbear: 47000, bridge: 47001 } } })
-})()
-
-await check('a config-layer assignment is visible to the UI', async () => {
-  assert.deepEqual((await configPlugin.snapshot()).forwardPorts[WS], { dropbear: 47000, bridge: 47001 })
-})
-
-await check('a config-layer assignment can be deleted from the UI', async () => {
-  const response = await configPlugin.call('/bas-remote/ports', 'POST', { forwardPorts: { [WS]: null } })
-  assert.equal(response.status, 200)
-  assert.equal(response.body.forwardPorts[WS], undefined, 'the config value still wins over the deletion')
-  assert.equal((await configPlugin.snapshot()).forwardPorts[WS], undefined)
-})
-
-await check('the strict toggle reports the effective value, not just the stored one', async () => {
-  const first = await configPlugin.call('/bas-remote/strict', 'POST', {})
+  const strictByDefault = await loadPlugin()
+  assert.equal((await strictByDefault.snapshot()).forwardPortsStrict, true, 'the schema default must still supply strict mode')
+  const first = await strictByDefault.call('/bas-remote/strict', 'POST', {})
   assert.equal(first.body.forwardPortsStrict, false, 'toggling from the default true must turn strict off')
-  assert.equal((await configPlugin.snapshot()).forwardPortsStrict, false)
-  const second = await configPlugin.call('/bas-remote/strict', 'POST', {})
-  assert.equal(second.body.forwardPortsStrict, true)
-  const explicit = await configPlugin.call('/bas-remote/strict', 'POST', { strict: false })
-  assert.equal(explicit.body.forwardPortsStrict, false)
+  assert.equal(persistedState().forwardPortsStrict, false, 'the toggle must persist')
+  const lenient = await loadPlugin({ forwardPortsStrict: false })
+  assert.equal((await lenient.snapshot()).forwardPortsStrict, false)
+  const explicit = await lenient.call('/bas-remote/strict', 'POST', { strict: true })
+  assert.equal(explicit.body.forwardPortsStrict, true)
+})
+
+// The removed config key must fail loudly: schemastery passes unknown keys
+// through, so silence here would mean pinned ports quietly going random.
+await check('a leftover forwardPorts config key is rejected with a clear error', async () => {
+  seedState({ landscapes: [], lastDevSpace: '', forwardPorts: {} })
+  await assert.rejects(
+    () => loadPlugin({ forwardPorts: { [WS]: { dropbear: 44000, bridge: 44001 } } }),
+    (error) => {
+      assert.match(error.message, /forwardPorts is no longer a plugin config key/)
+      assert.match(error.message, /state\.json/, 'the error should say where assignments live now')
+      return true
+    },
+  )
+})
+
+await check('an empty forwardPorts config key is tolerated', async () => {
+  const empty = await loadPlugin({ forwardPorts: {} })
+  assert.equal((await empty.snapshot()).forwardPorts[WS], undefined)
 })
 
 await check('the state snapshot is what the port settings render', async () => {
-  const state = await configPlugin.snapshot()
+  const state = await plugin.snapshot()
   assert.ok(state.forwardPorts && typeof state.forwardPorts === 'object', 'no forwardPorts in the snapshot')
   assert.equal(typeof state.forwardPortsStrict, 'boolean')
+  assert.deepEqual(state.forwardPorts[WS], { dropbear: 44000, bridge: 44001 })
 })
 
 console.log(checks.join('\n'))
