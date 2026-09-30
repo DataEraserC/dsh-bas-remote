@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0+5
+
+### Added
+- **Plugins-page configuration row (`plugins.row.config`).** The bundle now registers the 0.2 keyed slot, so its row on the Plugins page gains a configure control: `view: 'summary'` renders the card one-liner (a translated sentence that also serves as the detail page's fallback description) and `view: 'page'` reuses the settings page body — BAS state and actions ride the plugin's own bridge, not the Host's ConfigPageForm, so the `form` prop is deliberately ignored. The registration key is `rowConfigKey('dsh-bas-remote', 'dsh-bas-remote')` (the package name equals the id of the `cordis.patch.yml` insert entry, so one key covers both spellings the Host may derive).
+- **Legacy `plugins.item` fallback.** Hosts without the new slot (0.1.7) get the same component as the card body; the registration is skipped whenever the Host declares `plugins.row.config`, so 0.2 renders the component exactly once.
+
 ## 0.5.0+4
 
 ### Changed

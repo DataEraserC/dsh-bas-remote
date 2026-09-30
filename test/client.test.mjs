@@ -87,15 +87,21 @@ function createDocumentStub() {
  * @param {object} options - loader options.
  * @param {*} options.state - value the first `useState` returns (the polled snapshot).
  * @param {*} [options.open] - value the second `useState` returns (panel open flag).
+ * @param {*} [options.rowConfigSlot] - what `slots.spec('plugins.row.config')`
+ *   reports: `undefined` models a host without the slot (0.1.7), an object
+ *   models a host that declares it (0.2).
  * @returns {{registrations: object[], react: object, document: object, effects: object[], dispose: Function}} stubs and results.
  */
-function loadClient({ state, open = false } = {}) {
+function loadClient({ state, open = false, rowConfigSlot = undefined } = {}) {
   const react = createReactStub([state, open])
   const registrations = []
   const effects = []
   const slots = {
     inject(_name, factory) {
       factory()
+    },
+    spec(name) {
+      return name === 'plugins.row.config' ? rowConfigSlot : undefined
     },
     register(meta, component) {
       registrations.push({ meta, component })
@@ -327,6 +333,48 @@ const deleteButton = findAll(
 
 check('a port row offers a remove control', () => {
   assert.ok(deleteButton, 'no remove button in the port settings')
+})
+
+// ── plugins.row.config (the Plugins-page configuration row) ────────────────
+//
+// The Host looks the row up through rowConfigKey(package name, row id). Both
+// spellings are `dsh-bas-remote` for this bundle (package name == the id of
+// the cordis.patch.yml insert entry), so one key covers the lookup; without it
+// the card would have no configure control.
+
+const rowConfig = registrations.find((entry) => entry.meta.name === 'plugins.row.config')
+const legacyItem = registrations.find((entry) => entry.meta.name === 'plugins.item')
+
+check('registers a plugins.row.config entry keyed by package name and row id', () => {
+  assert.ok(rowConfig, 'plugins.row.config is not registered')
+  assert.equal(rowConfig.meta.key, 'dsh-bas-remote#dsh-bas-remote')
+  assert.equal(rowConfig.meta.locale, 'dsh-bas-remote')
+})
+
+check('the row summary view is a translated one-liner', () => {
+  const summary = resolve(rowConfig.component({ view: 'summary' }))
+  assert.match(textOf(summary), /Sign in to BAS landscapes/)
+  assert.doesNotMatch(textOf(summary), /card\.summary/)
+})
+
+check('the row page view reuses the settings page body', () => {
+  const entry = loadClient({ state: portsState, open: true })
+    .registrations.find((candidate) => candidate.meta.name === 'plugins.row.config')
+  const tree = resolve(entry.component({ view: 'page' }))
+  assert.ok(findAll(tree, (node) => node.type === 'input').length >= 4, 'settings fields missing from the row page')
+})
+
+check('hosts without plugins.row.config fall back to plugins.item', () => {
+  assert.ok(legacyItem, 'legacy plugins.item is not registered while row.config is absent')
+  assert.equal(legacyItem.meta.id, 'dsh-bas-remote')
+  assert.match(String(legacyItem.meta.label()), /Sign in to BAS landscapes/)
+})
+
+check('the legacy card stays off once the Host declares plugins.row.config', () => {
+  const modern = loadClient({ state: portsState, rowConfigSlot: { kind: 'keyed', scope: 'root' } })
+  const names = modern.registrations.map((entry) => entry.meta.name)
+  assert.ok(names.includes('plugins.row.config'), 'the configured row must still register')
+  assert.ok(!names.includes('plugins.item'), 'a second seat would render the component twice')
 })
 
 async function checkAsync(name, body) {
