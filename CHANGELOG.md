@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0+4
+
+### Changed
+- **The four `@deepseek-ai/dsh-*` peer ranges now admit DeepSeek Harness 0.2.0-rc.2.** They were `^0.1.0`, which does not admit `0.2.0-rc.2` (semver evaluates the range as false with or without `includePrerelease`, so the compatibility preflight in the kernel denied the plugin before it loaded). Each range is now `^0.1.0 || 0.2.0-rc.2`: every 0.1.x resolution is unchanged, the new harness satisfies the second alternative, and no code changes were needed — the manifest is the only thing the preflight reads.
+- The entry affects `dsh-tools`, `dsh-credentials`, `dsh-commands` and `dsh-system-prompt`; `@deepseek-ai/cordis`, `schemastery` and `ws` are untouched because the preflight only evaluates `@deepseek-ai/dsh` and `@deepseek-ai/dsh-*` peers.
+
 ## 0.5.0+3
 
 ### Changed
